@@ -80,7 +80,6 @@ int main()
 
 
                 if (keyword == "set"){
-                    cout << "1";
                     if (func_set(pipe, data, parser)){
                         printf("func_set Error!\n");
                         CloseHandle(pipe);
@@ -88,7 +87,6 @@ int main()
                     }
                 }
                 else if(keyword == "get"){
-                    cout << "2";
                     if (func_get(pipe, data, parser)){
                         printf("func_get Error!\n");
                         CloseHandle(pipe);
@@ -96,7 +94,6 @@ int main()
                     }
                 }
                 else if(keyword == "delete"){
-                    cout << "3";
                     if (func_delete(pipe, data, parser)){
                         printf("func_delete Error!\n");
                         CloseHandle(pipe);
@@ -104,7 +101,6 @@ int main()
                     }
                 }
                 else if(keyword == "list"){
-                    cout << "4";
                     if (func_list(pipe, data)){
                         printf("func_list Error!\n");
                         CloseHandle(pipe);
@@ -112,7 +108,6 @@ int main()
                     }
                 }
                 else if(keyword == "quit"){
-                    cout << "4";
                     if (!DisconnectNamedPipe(pipe))
                         {
                             printf("DisconnectNamedPipe Error: %d\n", GetLastError());
