@@ -12,360 +12,226 @@
 ### 1. Создание именованного канала
 
 ```cpp
-cout << "Enter name of pipe: ";
-    string name;
-    cin >> name;
+cout << R"("Enter pipe name (without `.\\pipe\\`): )";
+	cin >> lpszPipename;
 
-    string path = "\\\\.\\pipe\\" + name;
 
-    HANDLE pipe = CreateNamedPipeA(path.c_str(),
+	auto lpszPipename_full = ("\\\\.\\pipe\\" + lpszPipename).c_str();
+
+	HANDLE hPipe= CreateNamedPipe(lpszPipename_full,
                                    PIPE_ACCESS_DUPLEX,
                                    PIPE_TYPE_MESSAGE,
                                    PIPE_UNLIMITED_INSTANCES,
-                                   BUF_SIZE2,
-                                   BUF_SIZE2,
+                                   BUFSIZE,   // output buffer size 
+         							BUFSIZE,
                                    0,
-                                   NULL);
+                                   NULL);                // default security attributes 
 
-    if (pipe == INVALID_HANDLE_VALUE)
-    {
-        printf("Create Pipe Error: %d\n", GetLastError());
-        return 1;
-    }
+	if (hPipe == INVALID_HANDLE_VALUE) 
+      {
+         printf("CreateNamedPipe failed with %d.\n", GetLastError());
+         return 0;
+      }
 ```
 
 ### 2. Цикл работы сервера
 ```cpp
-    while (true)
-    {
-        if (ConnectNamedPipe(pipe, NULL))
-            connected = true;
-        else
-            connected = false;
-
-        if (connected)
-        {
-
-            printf("connected.\n");
-
-            bool quit = false;
-
-            while (!quit)
-            {
-                printf("Waiting for command... ");
-                string command(64, '\0');
-
-                if (!ReadFile(pipe, &command[0], command.size(), NULL, NULL))
-                {
-                    auto readError = GetLastError();
-                    if (readError != ERROR_IO_PENDING)
-                    {
-                        printf("ReadFile Error: %d\n", readError);
-                        CloseHandle(pipe);
-                        return -3;
-                    }
-                }
-
-                if (command[0] != '\0')
-                    printf("Received.\n");
-
-                printf("Command: %s\n\n", command.c_str());
-
-                istringstream parser{command};
-                string keyword;
-                parser >> keyword;
+    while(true){
+		string keyword;
+		map<string,string> storage;
+		cout << "Waiting for a client...";
+		if(wait_for_connection_client(hPipe)){
+			cout << "Connected.\n\n";
+		}
 
 
-                if (keyword == "set"){
-                    if (func_set(pipe, data, parser)){
-                        printf("func_set Error!\n");
-                        CloseHandle(pipe);
-                        return -2;
-                    }
-                }
-                else if(keyword == "get"){
-                    if (func_get(pipe, data, parser)){
-                        printf("func_get Error!\n");
-                        CloseHandle(pipe);
-                        return -2;
-                    }
-                }
-                else if(keyword == "delete"){
-                    if (func_delete(pipe, data, parser)){
-                        printf("func_delete Error!\n");
-                        CloseHandle(pipe);
-                        return -2;
-                    }
-                }
-                else if(keyword == "list"){
-                    if (func_list(pipe, data)){
-                        printf("func_list Error!\n");
-                        CloseHandle(pipe);
-                        return -2;
-                    }
-                }
-                else if(keyword == "quit"){
-                    if (!DisconnectNamedPipe(pipe))
-                        {
-                            printf("DisconnectNamedPipe Error: %d\n", GetLastError());
-                            CloseHandle(pipe);
-                            return -4;
-                        }
-                        quit = true;
-                }
-                else
-                {
-                    string response = "No such command! Try again!\n";
-                    cout << response;
-                    if (!WriteFile(pipe, response.c_str(), response.size(), NULL, NULL))
-                        {
-                            auto Error = GetLastError();
-                            if (Error != ERROR_IO_PENDING)
-                            {
-                                printf("WriteFile Error: %d", Error);
-                                CloseHandle(pipe);
-                                return -2;
-                            }
-                        }
-                }
-            }
-        }
-        else
-        {
-            CloseHandle(pipe);
-            break;
-        }
-    }
+		bool quit = false; 
+		while(!quit){
+			printf("Waiting for the command...");
+			string command(64, '\0');
+			ReadFile(hPipe, &command[0], command.size(), NULL, NULL);
+			istringstream parser{command};
+			cout << "\nCommand: " << command;
+			parser >> keyword;
+			string response;
+
+			if (keyword == "set"){
+				string name;
+				string value;
+				parser >> name >> value;
+				storage[name] = value;
+				response = "acknowledged";
+				cout << "\nResponse: " << response << "\n\n";
+				WriteFile(hPipe, response.c_str(), response.size(), NULL, NULL);
+			}
+
+			else if(keyword == "get"){
+				string key;
+				parser >> key;
+				if (storage.find(key.c_str()) != storage.end()){
+					string value = storage[key.c_str()];
+					response = "found: " + value; 
+					WriteFile(hPipe, response.c_str(), response.size(), NULL, NULL);
+					cout << "\nResponse: " << response << "\n\n";
+				}
+				else{
+					response = "missing";
+					WriteFile(hPipe, response.c_str(), response.size(), NULL, NULL);
+					cout << "\nResponse: " << response << "\n\n";
+				}
+			}
+
+			else if(keyword == "delete"){
+				string key;
+				parser >> key;
+				if (storage.find(key.c_str()) != storage.end()){
+					storage.erase(key.c_str());
+					response = "deleted";
+					WriteFile(hPipe, response.c_str(), response.size(), NULL, NULL);
+					cout << "\nResponse: " << response << "\n\n";
+				}
+				else{
+					response = "missing";
+					WriteFile(hPipe, response.c_str(), response.size(), NULL, NULL);
+					cout << "\nResponse: " << response << "\n\n";
+				}
+			}
+
+			else if(keyword == "list"){
+				string response;
+				for (auto item : storage) {
+					response = response + " " + item.first;
+				}
+				WriteFile(hPipe, response.c_str(), response.size(), NULL, NULL);
+				cout << "\nResponse: " << response << "\n\n";
+				
+			}
+
+			else if(keyword == "quit"){
+				DisconnectNamedPipe(hPipe);
+				quit = true;
+			}
+
+		}
+		break;
+	}
 ```
 
 --- 
 
 ### Дополнительные функции
 
-### 1. **func_set**  
-Добавляет в словарь ```map<string, string> data``` указанный клиентом ключ ``` name ``` и его значение ``` value ```  
-В ответ отпрвляет строку "acknowledged"
+### 1. wait_for_connection_client
+Подключение к каналу и обработка ошибок
+```cpp
+BOOL wait_for_connection_client(HANDLE hPipe){
 
-```cpp  
-int func_set(HANDLE pipe, map<string, string> &data, istringstream &parser)
-{
-    string name;
-    string value;
-    parser >> name >> value;
+	bool fConnected = ConnectNamedPipe(hPipe, NULL);
 
-    data[name] = value;
-    string response = "acknowledged\n";
-    if (!WriteFile(pipe, response.c_str(), response.size(), NULL, NULL))
-    {
-        auto Error = GetLastError();
-        if (Error != ERROR_IO_PENDING)
-        {
-            printf("WriteFile Error: %d", Error);
-            return 1;
-        }
-    }
-    return 0;
+	if (!fConnected){
+		switch(GetLastError())
+	    {
+	     	case ERROR_NO_DATA:
+	        printf("ConnectNamedPipe: ERROR_NO_DATA");
+	        getch();
+	        CloseHandle(hPipe);
+	        return 0;
+	     break;
 
-}
+	      case ERROR_PIPE_CONNECTED:
+	        printf("ConnectNamedPipe: ERROR_PIPE_CONNECTED");
+	        getch();
+	        CloseHandle(hPipe);
+	        return 0;
+	     break;
 
-```
-### 2. **func_get**  
-Возвращает клиенту значение ключа или содержимое всего словаря если была получена команда ``` get all ```
+	      case ERROR_PIPE_LISTENING:
+	        printf("ConnectNamedPipe: ERROR_PIPE_LISTENING");
+	        getch();
+	        CloseHandle(hPipe);
+	        return 0;
+	    break;
 
-```cpp  
-int func_get (HANDLE pipe, map<string, string> &data, istringstream &parser)
-{
-    string get_param;
-    parser >> get_param;
+	      case ERROR_CALL_NOT_IMPLEMENTED:
+	        printf("ConnectNamedPipe: ERROR_CALL_NOT_IMPLEMENTED");
+	        getch();
+	        CloseHandle(hPipe);
+	        return 0;
+	    break;
 
-    char response[256] = "\0";
+	      default:
+	        printf("ConnectNamedPipe: Error %ld\n", GetLastError());
+	        getch();
+	        CloseHandle(hPipe);
+	        return 0;
+	    break;
+		}
 
+		CloseHandle(hPipe);
+    	getch();
+    	return 0;
+	}
 
-    if (strcmp(get_param.c_str(), "all") == 0)
-    {
-        strcpy(response, "All data:\n");
-
-        for (auto item : data)
-        {
-            strcat(response, item.first.c_str());
-            strcat(response, " ");
-            strcat(response, item.second.c_str());
-            strcat(response, "\n");
-        }
-
-    }
-    else if (data.find(get_param.c_str()) != data.end())
-    {
-        strcat(response, "found: ");
-        strcat(response, data[get_param.c_str()].c_str());
-        strcat(response, "\n");
-    }
-    else
-    {
-        strcat(response, "missing\n");
-    }
-
-    if (!WriteFile(pipe, response, strlen(response), NULL, NULL))
-    {
-        auto Error = GetLastError();
-        if (Error != ERROR_IO_PENDING)
-        {
-            printf("WriteFile Error: %d", Error);
-            return 1;
-        }
-    }
-    return 0;
+	return fConnected;
 }
 ```
 
-### 3. **func_list**  
-Возвращает клиенту список ключей. Если словарь пуст, то возвращет "List is empty"
-```cpp  
-int func_list(HANDLE pipe, map<string, string> &data)
-{
-    string List = "";
-
-    for (auto item : data)
-    {
-        List += item.first + ", ";
-    }
-    if (List.length() == 0)
-        List = "List is empty\n";
-    else
-    {
-        List[List.length() - 2] = '\n';
-        List[List.length() - 1] = '\0';
-    }
-    if (!WriteFile(pipe, List.c_str(), List.size(), NULL, NULL))
-    {
-        auto Error = GetLastError();
-        if (Error != ERROR_IO_PENDING)
-        {
-            printf("WriteFile Error: %d", Error);
-            return 1;
-        }
-    }
-    return 0;
-}
-```
-
-### 3. **func_delete**  
-Удаляет запись с указанном ключом.
-```cpp  
-int func_delete(HANDLE pipe, map<string, string> &data, istringstream &parser)
-{
-    string key;
-    parser >> key;
-
-    char response[256] = "\0";
-    auto delKeyIt = data.find(key.c_str());
-
-    if (delKeyIt == data.end())
-        strcat(response, "missing\n");
-    else
-    {
-        strcat(response, key.c_str());
-        strcat(response, "-");
-        strcat(response, data[key.c_str()].c_str());
-        strcat(response, " deleted\n");
-        data.erase(delKeyIt);
-    }
-
-    if (!WriteFile(pipe, response, strlen(response), NULL, NULL))
-    {
-        auto Error = GetLastError();
-        if (Error != ERROR_IO_PENDING)
-        {
-            printf("WriteFile Error: %d", Error);
-            return 1;
-        }
-    }
-    return 0;
-}
-
-```
 
 # Клиент
 При написании клинта использовал [пример с сайта Microsoft](https://docs.microsoft.com/ru-ru/windows/win32/ipc/named-pipe-client?redirectedfrom=MSDN)
 ### 1. Подключение к именованному каналу
 ```cpp  
-cout << "Enter name of pipe: ";
+   while(1){
 
-    string name;
-    cin >> name;
+      cout << R"(Enter pipe name (without `.\\pipe\\`): )";
+      cin >> lpszPipename;
+      auto lpszPipename_full = ("\\\\.\\pipe\\" + lpszPipename).c_str();
 
-    string path = "\\\\.\\pipe\\" + name;
+      hPipe = CreateFileA( 
+         lpszPipename_full,   // pipe name 
+         GENERIC_READ |  // read and write access 
+         GENERIC_WRITE, 
+         0,              // no sharing 
+         NULL,           // default security attributes
+         OPEN_EXISTING,  // opens existing pipe 
+         0,              // default attributes 
+         NULL);          // no template file 
 
-    HANDLE hPipe = CreateFileA( 
-        path.c_str(),   // pipe name 
-        GENERIC_READ | GENERIC_WRITE, // read and write access 
-        0,              // no sharing 
-        NULL,           // default security attributes
-        OPEN_EXISTING,  // opens existing pipe 
-        FILE_ATTRIBUTE_NORMAL,   //  attributes 
-        NULL);          // no template file 
-    
-
-    // Break if the pipe handle is valid. 
-    if (hPipe == INVALID_HANDLE_VALUE)
-    {
-        printf("Open Pipe Error Error: %d\n", GetLastError());
-        return -1;
-    }
+      if(hPipe == INVALID_HANDLE_VALUE){
+         fprintf(stdout,"CreateFile: Error %ld\n", 
+         GetLastError());
+      }
+      else break;
+   }  
 ```
 
 ### 2. Основной цикл работы клиента
 ```cpp 
 while(1){
-        printf(">> ");
-        string command;
-        getline(cin, command);
-        // cin >> command;
+      printf(">> ");
+      string command;
+      string response(1024, '\0');
+      
+      getline(cin, command);
 
-        // Send command
-        if (!WriteFile(hPipe, command.c_str(), command.size(), NULL, NULL))
-        {
-            auto Error = GetLastError();
-            if (Error != ERROR_IO_PENDING)
-            {
-                printf("WriteFile Error: %d", Error);
-                CloseHandle(hPipe);
-                return -2;
-            }
-        }
+      WriteFile(hPipe, command.c_str(), command.size(),NULL, NULL);
 
-        //Read 
-        if (command != "quit")
-        {   
-            string response(1024, '\0');
-            if (!ReadFile(hPipe, &response[0], response.size(), NULL, NULL))
-            {
-                auto Error = GetLastError();
-                if (Error != ERROR_IO_PENDING)
-                {
-                    printf("ReadFile Error: %d\n", Error);
-                    CloseHandle(hPipe);
-                    return -3;
-                }
-            }
-            
-            printf("%s\n", response.c_str());
-            
-        }
-        else
-            break;
 
-    }
+      ReadFile(hPipe, &response[0], response.size(), NULL, NULL);
+      printf("%s \n\n", response.c_str());
+
+
+   }
 ```
 ---
 # Скриншоты работы программы
 ## Клиент  
-![image](https://user-images.githubusercontent.com/61864601/166513167-d4899d03-886f-4013-ba5f-bbf053a91728.png)
-![image](https://user-images.githubusercontent.com/61864601/166513269-1de8cc83-0f01-43b4-bbe8-0ba48247ba72.png)
+![image](https://user-images.githubusercontent.com/61864601/166830644-6bb54274-7fbe-4342-b744-291145f6aefb.png)
+
 
 ## Сервер  
-![image](https://user-images.githubusercontent.com/61864601/166513326-24f13416-11d7-4685-8371-34c621bd5ae7.png)
-![image](https://user-images.githubusercontent.com/61864601/166513378-9064ea69-eed1-493d-b117-e6a326731806.png)
+![image](https://user-images.githubusercontent.com/61864601/166830672-dc9b531d-3888-4ad9-a4d8-f3ea988edb3d.png)
+
 
 
 
